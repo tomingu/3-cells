@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BuildWatch site console</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e4e8e8;--p:#f6f8f8;--ink:#172023;--mut:#59686c;--ln:#c5cdcf;--acc:#0e5a63;--g:#2e8b57;--a:#d98f0e;--r:#c63a2f;--rail:#172023;--ri:#dfe8e9}
+@media(prefers-color-scheme:dark){:root{--bg:#10171a;--p:#192327;--ink:#e6eeef;--mut:#92a3a7;--ln:#2c3a3f;--acc:#4fb3bf;--rail:#0b1012}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.5 Barlow,system-ui,sans-serif}
+h1,h2,h3{font-family:'Barlow Condensed',Barlow,sans-serif;font-weight:600;margin:0}h2{font-size:26px}h3{font-size:19px;margin-bottom:8px}
+.app{display:grid;grid-template-columns:200px 1fr;min-height:100vh}.rail{background:var(--rail);color:var(--ri);padding:18px 12px}
+.rail h1{font-size:24px;margin-bottom:2px}.rail small{opacity:.7}.rail button{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;padding:9px 10px;border-radius:4px;cursor:pointer}
+.rail button.on{background:var(--acc);color:#fff}.main{padding:20px;max-width:1100px}
+.card{background:var(--p);border:1px solid var(--ln);border-radius:6px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+button,select,input,textarea{font:inherit;color:inherit}.b{background:var(--acc);color:#fff;border:0;border-radius:4px;padding:7px 14px;cursor:pointer}
+.b.o{background:none;color:var(--ink);border:1px solid var(--ln)}.b:disabled{opacity:.4;cursor:not-allowed}
+input,select,textarea{background:var(--bg);border:1px solid var(--ln);border-radius:4px;padding:6px 8px;max-width:100%}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--ln);vertical-align:top}th{color:var(--mut);font-weight:500}
+.chip{display:inline-block;padding:1px 9px;border-radius:10px;color:#fff;font-size:13px}.mut{color:var(--mut)}
+.bar{height:10px;background:var(--bg);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%}
+.strip{display:grid;grid-template-columns:repeat(24,1fr);gap:2px}.strip i{height:22px;border-radius:2px}
+#map{height:320px;border-radius:6px;margin-bottom:16px;display:none;border:1px solid var(--ln)}
+.login{max-width:360px;margin:12vh auto;padding:0 16px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.big{font:600 40px/1 'Barlow Condensed',sans-serif}
+@media(max-width:760px){.app{grid-template-columns:1fr}.rail{display:flex;gap:4px;flex-wrap:wrap}.rail button{width:auto}}
+@media print{.rail,#map,.noprint{display:none!important}.app{display:block}body{background:#fff;color:#000}}
+</style></head><body><div id="root"></div><div id="map"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* Demo mode by default. To use real nodes, paste your firebaseConfig here (see README notes in chat). */
+const FB=null;
+const $=s=>document.querySelector(s),RATE=.15,SCALE=20,rnd=(a,b)=>a+Math.random()*(b-a);
+/* EXAMPLE limits only. Set real values from the DOE noise guideline, council hours and the site dust plan. */
+const cfg={dust:{red:100},noise:{day:75,eve:65,night:55},mistOn:60,mistWait:120,maxMin:10,timerOn:60,timerEvery:10};
+const STAGES=['Earthworks','Structure','Architectural','M&E','HVAC','Fire fighting','AHU','Testing & commissioning (MSB/SSB)','Handover'];
+const mk=(id,name,type,lat,lng,d,n,stage,tasks)=>({id,name,type,lat,lng,dust:d,noise:n,hum:70,mode:'auto',pump:false,tank:800,last:null,mistEnd:0,nextOk:0,nz:0,inc:null,stage,end:'2026-12-18',plan:'',lsToday:0,
+tasks:tasks.map(t=>({t,done:false})),hist:Array.from({length:24},(_,h)=>({d:Math.round(rnd(20,90)+(h>=9&&h<=16?40:0)),n:Math.round(rnd(48,70)+(h>=8&&h<=17?10:0))})),ls:Array.from({length:6},()=>Math.round(rnd(150,320)))});
+/* Demo sites and coordinates are placeholders */
+const S=[mk('a','Site A, landed phase 2','Landed construction',3.221,101.49,60,62,'Earthworks',['Haul road watering','Drainage trench','Slope turfing']),
+mk('b','Site B, terrace renovation','Renovation',3.2105,101.504,35,58,'M&E',['Conduit install','DB board delivery']),
+mk('c','Site C, commercial block','Commercial',3.198,101.485,45,66,'Testing & commissioning (MSB/SSB)',['HVAC test run','Fire alarm test','MSB energising'])];
+const at=h=>{const t=new Date();t.setHours(h,15);return t};
+let R=[{site:'a',type:'Dust',time:at(9),note:'Dust on cars near gate',status:'New',assignee:'',action:''},{site:'a',type:'Noise',time:at(7),note:'Piling before 8 am',status:'Assigned',assignee:'Safety officer',action:''},{site:'b',type:'Noise',time:at(11),note:'Drilling, long duration',status:'Closed',assignee:'Site supervisor',action:'Moved drilling inside'}];
+let I=[],n=0,user=null,view='overview',sel='a',map,mk_={};
+const limFor=h=>h>=7&&h<19?cfg.noise.day:h>=19&&h<22?cfg.noise.eve:cfg.noise.night,limN=()=>limFor(new Date().getHours());
+const lvl=(d,nz,l)=>{const r=Math.max(d/cfg.dust.red,nz/l);return r>=1?'r':r>=.8?'a':'g'};
+const C={g:'var(--g)',a:'var(--a)',r:'var(--r)'},LB={g:'Low',a:'Medium',r:'High'};
+const chip=k=>`<span class="chip" style="background:${C[k]}">${LB[k]}</span>`;
+const fmt=t=>new Date(t).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const vis=()=>user.role==='admin'?S:S.filter(s=>s.id===user.site),cur=()=>S.find(s=>s.id===sel);
+const st=s=>lvl(s.dust,s.noise,limN()),sw=(s,i)=>s.ls[i],timerDay=()=>Math.round(cfg.timerOn*RATE*60/cfg.timerEvery*10);
+function cmd(s){if(FB)firebase.database().ref('sites/'+s.id+'/control').set({mode:s.mode,pump:s.pump,on:cfg.mistOn,wait:cfg.mistWait,max:cfg.maxMin})}
+function start(s,how){if(s.pump||s.tank<=0)return;s.pump=true;s.mistEnd=Date.now()+(how==='Manual mist'?cfg.maxMin*60000:cfg.mistOn*1000)/SCALE;
+s.inc={id:'I'+(++n),site:s.id,time:new Date(),type:'Dust',before:Math.round(s.dust),after:'',action:how,l:0,out:'Running'};cmd(s)}
+function stop(s){s.pump=false;s.last=new Date();s.nextOk=Date.now()+cfg.mistWait*1000/SCALE;
+if(s.inc){s.inc.after=Math.round(s.dust);s.inc.out=s.dust<cfg.dust.red*.8?'Controlled':'Still elevated';I.unshift(s.inc);s.inc=null}cmd(s)}
+function tick(){if(FB)return;S.forEach(s=>{
+s.dust=Math.max(10,s.dust+rnd(-6,6)+(s.id==='a'&&Math.random()<.08?rnd(30,70):0));s.noise=Math.max(40,Math.min(95,s.noise+rnd(-3,3)));
+if(s.pump){const l=RATE*2*SCALE;s.tank=Math.max(0,s.tank-l);s.lsToday+=l;if(s.inc)s.inc.l+=l;s.dust*=.7;if(Date.now()>=s.mistEnd||s.tank<=0)stop(s)}
+else if(s.mode==='auto'&&s.dust>=cfg.dust.red&&Date.now()>=s.nextOk)start(s,'Auto mist');
+if(s.noise>=limN()&&Date.now()>s.nz){s.nz=Date.now()+30000;I.unshift({id:'I'+(++n),site:s.id,time:new Date(),type:'Noise',before:Math.round(s.noise),after:'',action:'Alert sent, awaiting action',l:0,out:'Open'})}})}
+function fbInit(){if(!FB)return;const v='10.12.2',u=f=>new Promise(r=>{const e=document.createElement('script');e.src=`https://www.gstatic.com/firebasejs/${v}/firebase-${f}-compat.js`;e.onload=r;document.head.append(e)});
+u('app').then(()=>u('database')).then(()=>{firebase.initializeApp(FB);firebase.database().ref('sites').on('value',sn=>{const o=sn.val()||{};S.forEach(s=>{const c=(o[s.id]||{}).current;if(c){s.dust=c.dust;s.noise=c.noise;s.hum=c.hum;s.pump=!!c.pump;if(c.tank!=null)s.tank=c.tank}})})})}
+const login=()=>{const m=$('#map');m.style.display='none';document.body.append(m);$('#root').innerHTML=`<div class="login card"><h2>BuildWatch</h2><p class="mut">Site console. Demo sign-in only: replace with Firebase Authentication and role claims before real use.</p>
+<div class="row"><label>Role <select id="lr"><option value="manager">Site manager</option><option value="admin">SDP admin</option></select></label></div>
+<div class="row"><label>Site <select id="ls">${S.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></label></div>
+<button class="b" onclick="go()">Sign in</button></div>`};
+function go(){user={role:$('#lr').value,site:$('#ls').value};sel=vis()[0].id;view='overview';shell();if(window.L&&!map){map=L.map('map').setView([3.21,101.495],12);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(map)}render()}
+function shell(){const nav=[['overview','Map and sites'],['site','Site detail'],['reports','Reports'],['inc','Incident log']];if(user.role==='admin')nav.push(['set','Alert settings']);
+$('#root').innerHTML=`<div class="app"><nav class="rail"><h1>BuildWatch</h1><small>${user.role==='admin'?'SDP admin':'Site manager'}</small><div style="height:14px"></div>
+${nav.map(([k,t])=>`<button data-v="${k}" onclick="view='${k}';render()">${t}</button>`).join('')}<button onclick="user=null;login()" style="margin-top:14px;opacity:.7">Sign out</button></nav><main class="main" id="view"></main></div>`}
+function render(){if(!user)return;document.querySelectorAll('.rail [data-v]').forEach(b=>b.classList.toggle('on',b.dataset.v===view));
+$('#map').style.display=view==='overview'?'block':'none';const m=$('#view');m.before($('#map'));
+m.innerHTML={overview:vOver,site:vSite,reports:vRep,inc:vInc,set:vSet}[view]();if(map){map.invalidateSize();vis().forEach(s=>{const k=st(s),ic=L.divIcon({className:'',html:`<div style="width:18px;height:18px;border-radius:50%;background:${C[k].replace('var(--g)','#2e8b57').replace('var(--a)','#d98f0e').replace('var(--r)','#c63a2f')};border:2px solid #fff"></div>`});
+if(mk_[s.id])mk_[s.id].setIcon(ic);else mk_[s.id]=L.marker([s.lat,s.lng],{icon:ic}).addTo(map).bindTooltip(s.name).on('click',()=>{sel=s.id;view='site';render()})})}}
+const vOver=()=>`<h2>Ongoing sites</h2><div class="card"><table><tr><th>Site</th><th>Type</th><th>Dust</th><th>Noise</th><th>Status</th><th>Misting</th></tr>
+${vis().map(s=>`<tr style="cursor:pointer" onclick="sel='${s.id}';view='site';render()"><td>${s.name}</td><td>${s.type}</td><td>${Math.round(s.dust)} µg/m³</td><td>${Math.round(s.noise)} dB(A)</td><td>${chip(st(s))}</td><td>${s.pump?'Running':s.mode==='auto'?'Auto':'Manual'}</td></tr>`).join('')}</table>
+<p class="mut">Readings are indicative, not regulatory-grade. Demo data is simulated.</p></div>`;
+const gauge=(t,v,u,lim,k)=>`<div><div class="row mut">${t}</div><div class="big">${Math.round(v)} <small class="mut" style="font-size:16px">${u}</small></div><div class="bar"><i style="width:${Math.min(100,v/lim*100)}%;background:${C[k]}"></i></div><div class="mut">Limit ${lim} ${u}</div></div>`;
+function vSite(){const s=cur(),nl=limN(),h=new Date().getHours();
+return `<div class="row"><h2>${s.name}</h2>${user.role==='admin'?`<select onchange="sel=this.value;render()">${S.map(x=>`<option value="${x.id}"${x.id===sel?' selected':''}>${x.name}</option>`).join('')}</select>`:''}</div>
+<div class="grid"><div class="card"><h3>Current status</h3><div class="grid">${gauge('Dust',s.dust,'µg/m³',cfg.dust.red,lvl(s.dust,0,1))}${gauge('Noise',s.noise,'dB(A)',nl,lvl(0,s.noise,nl))}</div>
+<h3 style="margin-top:14px">Last 24 hours</h3><div class="strip">${s.hist.map((x,i)=>`<i title="${i}:00 dust ${x.d}, noise ${x.n}" style="background:${C[lvl(x.d,x.n,limFor(i))]}"></i>`).join('')}</div><div class="row mut"><span>00:00</span><span style="margin-left:auto">23:00</span></div>
+<div class="row">${chip('g')} low ${chip('a')} medium ${chip('r')} high</div></div>
+<div class="card"><h3>Misting control</h3><div class="row"><button class="b${s.mode==='auto'?'':' o'}" onclick="mode('${s.id}','auto')">Auto</button><button class="b${s.mode==='manual'?'':' o'}" onclick="mode('${s.id}','manual')">Manual</button>
+<button class="b" ${s.mode==='auto'?'disabled':''} onclick="pump('${s.id}')">${s.pump?'Turn off':'Turn on'}</button></div>
+<p>Pump: <b>${s.pump?'Running':'Off'}</b><br>Last run: ${s.last?fmt(s.last):'None yet'}<br>Tank: ${Math.round(s.tank)} L of 1000 L</p><div class="bar"><i style="width:${s.tank/10}%;background:var(--acc)"></i></div>
+<p class="mut">Auto mists when dust stays above the limit. Stops at maximum run time, empty tank or manual off. Fit a physical override switch.</p></div></div>
+<div class="grid"><div class="card"><h3>Water used: sensor-triggered vs fixed timer</h3>${chart(s)}</div>
+<div class="card"><h3>Progress</h3><div class="row"><label>Stage <select onchange="cur().stage=this.value">${STAGES.map(x=>`<option${x===s.stage?' selected':''}>${x}</option>`).join('')}</select></label></div>
+<div class="row"><label>Expected end <input type="date" value="${s.end}" onchange="cur().end=this.value"></label></div>
+<div class="mut">This week's tasks</div>${s.tasks.map((t,i)=>`<div class="row"><input type="checkbox" ${t.done?'checked':''} onchange="cur().tasks[${i}].done=this.checked"> <span>${t.t}</span><button class="b o" style="margin-left:auto" onclick="cur().tasks.splice(${i},1);render()">Remove</button></div>`).join('')}
+<div class="row"><input id="nt" placeholder="Add a task"><button class="b" onclick="addT()">Add task</button></div>
+<textarea rows="2" style="width:100%" placeholder="Weekly plan notes" oninput="cur().plan=this.value">${s.plan}</textarea></div></div>`}
+function chart(s){const dl=['6d','5d','4d','3d','2d','1d','Today'],td=Math.round(s.lsToday),tm=timerDay(),a=[...s.ls,td],b=Array(7).fill(tm),mx=Math.max(...a,...b,1),sv=b.reduce((x,y)=>x+y,0)-a.reduce((x,y)=>x+y,0);
+return `<svg viewBox="0 0 340 170" width="100%" role="img" aria-label="Litres per day">${a.map((v,i)=>{const x=10+i*47,h1=v/mx*120,h2=b[i]/mx*120;return `<rect x="${x}" y="${130-h2}" width="18" height="${h2}" fill="var(--ln)"/><rect x="${x+19}" y="${130-h1}" width="18" height="${h1}" fill="var(--acc)"/><text x="${x+19}" y="148" font-size="11" text-anchor="middle" fill="currentColor">${dl[i]}</text>`}).join('')}</svg>
+<div class="row"><span style="color:var(--acc)">■</span> sensor-triggered <span class="mut">■</span> fixed timer (${cfg.timerOn} s every ${cfg.timerEvery} min, 10 h/day, estimate)</div>
+<p><b>${Math.round(sv)} L</b> saved over 7 days (${Math.round(sv/b.reduce((x,y)=>x+y,0)*100)}%)</p>`}
+function mode(id,m){const s=S.find(x=>x.id===id);s.mode=m;if(m==='auto'&&s.pump&&s.inc&&s.inc.action==='Manual mist')stop(s);cmd(s);render()}
+function pump(id){const s=S.find(x=>x.id===id);s.pump?stop(s):start(s,'Manual mist');render()}
+function addT(){const v=$('#nt').value.trim();if(v){cur().tasks.push({t:v,done:false});render()}}
+function vRep(){const ids=vis().map(s=>s.id);return `<h2>Resident reports</h2>${R.map((r,i)=>({r,i})).filter(x=>ids.includes(x.r.site)).map(({r,i})=>{const s=S.find(x=>x.id===r.site),hr=r.time.getHours(),x=s.hist[hr];
+return `<div class="card"><div class="row"><b>${r.type}</b> at ${s.name}<span class="mut">${fmt(r.time)}</span><span class="chip" style="background:var(--acc);margin-left:auto">${r.status}</span></div>
+<p>${r.note}</p><p class="mut">Readings around ${hr}:00 (indicative): dust ${x.d} µg/m³, noise ${x.n} dB(A). ${r.assignee?'Assigned to '+r.assignee+'.':''} ${r.action?'Action: '+r.action:''}</p>
+<div class="row noprint"><select onchange="assign(${i},this.value)"><option value="">Assign to</option>${['Site supervisor','Safety officer','Community officer'].map(a=>`<option>${a}</option>`).join('')}</select>
+<button class="b o" onclick="act(${i})">Log action</button><button class="b" ${r.status==='Closed'?'disabled':''} onclick="R[${i}].status='Closed';render()">Close</button></div></div>`}).join('')||'<p class="mut">No reports yet.</p>'}`}
+const assign=(i,v)=>{if(v){R[i].assignee=v;if(R[i].status==='New')R[i].status='Assigned';render()}},act=i=>{const v=prompt('What action was taken?');if(v){R[i].action=v;R[i].status='Action taken';render()}};
+function vInc(){const ids=vis().map(s=>s.id),rows=I.filter(x=>ids.includes(x.site));return `<div class="row"><h2>Incident log</h2><span class="noprint" style="margin-left:auto"><button class="b o" onclick="csv()">Export CSV</button> <button class="b" onclick="window.print()">Print or save PDF</button></span></div>
+<div class="card"><table><tr><th>Time</th><th>Site</th><th>Type</th><th>Before</th><th>Action</th><th>After</th><th>Litres</th><th>Outcome</th></tr>
+${rows.map(x=>`<tr><td>${fmt(x.time)}</td><td>${S.find(s=>s.id===x.site).name}</td><td>${x.type}</td><td>${x.before}</td><td>${x.action}</td><td>${x.after}</td><td>${Math.round(x.l)}</td><td>${x.out}</td></tr>`).join('')||'<tr><td colspan="8" class="mut">No incidents yet. Wait for a dust spike in demo mode, or switch to manual and turn the pump on.</td></tr>'}</table></div>`}
+function csv(){const ids=vis().map(s=>s.id),h='time,site,type,before,action,after,litres,outcome',r=I.filter(x=>ids.includes(x.site)).map(x=>[new Date(x.time).toISOString(),x.site,x.type,x.before,x.action,x.after,Math.round(x.l),x.out].map(v=>`"${v}"`).join(','));
+const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([[h,...r].join('\n')],{type:'text/csv'}));a.download='buildwatch-incidents.csv';a.click()}
+const num=(l,v,f)=>`<label class="row">${l} <input type="number" value="${v}" style="width:90px" onchange="${f}=+this.value"></label>`;
+const vSet=()=>`<h2>Alert settings</h2><div class="card"><h3>Dust</h3>${num('Red limit (µg/m³); amber is 80%',cfg.dust.red,'cfg.dust.red')}<h3>Noise limits by time of day, dB(A)</h3>${num('Day 07:00-19:00',cfg.noise.day,'cfg.noise.day')}${num('Evening 19:00-22:00',cfg.noise.eve,'cfg.noise.eve')}${num('Night 22:00-07:00',cfg.noise.night,'cfg.noise.night')}
+<h3>Mist cycle</h3>${num('Mist on (seconds)',cfg.mistOn,'cfg.mistOn')}${num('Wait between cycles (seconds)',cfg.mistWait,'cfg.mistWait')}${num('Maximum run time (minutes)',cfg.maxMin,'cfg.maxMin')}
+<h3>Fixed-timer baseline (for the water chart)</h3>${num('Timer on (seconds)',cfg.timerOn,'cfg.timerOn')}${num('Timer every (minutes)',cfg.timerEvery,'cfg.timerEvery')}
+<p class="mut">Values shown are examples. Set limits from the DOE noise guideline, council working hours and the site dust plan.</p></div>`;
+login();fbInit();setInterval(()=>{tick();if(user&&!document.activeElement.matches('input,textarea,select'))render()},2000);
+</script></body></html>
